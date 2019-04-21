@@ -28,10 +28,9 @@ namespace Milos
 
         public WorkerExitCode DoWork()
         {
-            Console.WriteLine($"Starting worker for {Mail.EMail}");
-
             var client = new ImapClient();
             client.ServerCertificateValidationCallback = (sender, certificate, chain, errors) => true;
+
             try
             {
                 client.Connect(Mail.Server.Hostname, Mail.Server.Port);
@@ -79,7 +78,7 @@ namespace Milos
 
         private WorkerExitCode Finish()
         {
-            File.AppendAllText(OutFile, $"{Mail.EMail}:{Mail.Password}");
+            File.AppendAllText(OutFile, $"{Mail.EMail}:{Mail.Password}\n");
             return WorkerExitCode.Found;
         }
     }

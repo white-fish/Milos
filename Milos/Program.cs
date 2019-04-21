@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using CommandLine;
 using MailKit;
 using MailKit.Net.Imap;
@@ -51,13 +52,16 @@ namespace Milos
             [Option('f', "from", Default = "from.txt", HelpText = "A list of regexs for senders")]
             public string FromFile { get; set; }
 
-            [Option("mailcount", Default = 100, HelpText = "Number of latest emails to check")]
+            [Option("mailcount", Default = 1000, HelpText = "Number of latest emails to check")]
             public int MailCount { get; set; }
+
+            [Option('t', "threads", Default = 20, HelpText = "Number of threads")]
+            public int Threads { get; set; }
         }
 
         static void Main(string[] args)
         {
-Console.WriteLine(@"___  ____ _          
+            Console.WriteLine(@"___  ____ _          
 |  \/  (_) |          
 | .  . |_| | ___  ___ 
 | |\/| | | |/ _ \/ __|
@@ -143,7 +147,7 @@ Console.WriteLine(@"___  ____ _
 
             var status = new Status();
 
-            foreach (var mail in mails)
+            Parallel.ForEach(mails, new ParallelOptions { MaxDegreeOfParallelism = options.Threads }, mail =>
             {
                 var worker = new Worker()
                 {
@@ -154,24 +158,38 @@ Console.WriteLine(@"___  ____ _
                     OutFile = options.OutputFile,
                 };
 
-                var workerStatus = worker.DoWork();
-
-                if (workerStatus == WorkerExitCode.Found)
-                    status.Found++;
-                else if (workerStatus == WorkerExitCode.NotFound)
-                    status.NotFound++;
-                else if (workerStatus == WorkerExitCode.ConnectionError)
+                try
                 {
-                    status.ConnectionErrors++;
-                    Console.WriteLine($"Connection error for {mail.EMail}");
+                    var workerStatus = worker.DoWork();
+
+                    lock (status)
+                    {
+                        if (workerStatus == WorkerExitCode.Found)
+                            status.Found++;
+                        else if (workerStatus == WorkerExitCode.NotFound)
+                            status.NotFound++;
+                        else if (workerStatus == WorkerExitCode.ConnectionError)
+                        {
+                            status.ConnectionErrors++;
+                            Console.WriteLine($"Connection error for {mail.EMail}");
+                        }
+                        else if (workerStatus == WorkerExitCode.AuthenticationError)
+                            status.AuthenticationErrors++;
+                    }
                 }
-                else if (workerStatus == WorkerExitCode.AuthenticationError)
-                    status.AuthenticationErrors++;
+                catch (Exception e)
+                {
+                    Console.WriteLine($"Unknown error for {mail.EMail}");
+                    Console.WriteLine(e);
+                }
 
-                status.Checked++;
+                lock (status)
+                {
+                    status.Checked++;
 
-                Console.WriteLine($"{status.Checked}/{mails.Count}, {status.Found} found");
-            }
+                    Console.WriteLine($"{status.Checked}/{mails.Count}, {status.Found} found");
+                }
+            });
 
             Console.WriteLine("Work finished");
         }
